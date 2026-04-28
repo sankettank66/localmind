@@ -4,3 +4,11 @@ linters:
     - goimports
     - govet
     - errcheck
+    - staticcheck
+
+linters-settings:
+  gofmt:
+    simplify: true
+
+run:
+  timeout: 5m
