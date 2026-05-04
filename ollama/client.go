@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -31,11 +32,15 @@ type GenerateResponse struct {
 }
 
 type ModelResult struct {
-	Model     string
-	Response  string
-	TTFT      time.Duration // time to first token
-	TotalTime time.Duration
-	Error     error
+	Model              string
+	Response           string
+	PromptEvalCount    int
+	PromptEvalDuration time.Duration
+	EvalCount          int
+	EvalDuration       time.Duration
+	LoadDuration       time.Duration
+	TotalTime          time.Duration
+	Error              error
 }
 
 type StreamEventType int
@@ -181,5 +186,59 @@ func Query(model, prompt string, resultChan chan<- StreamEvent) {
 	if err := scanner.Err(); err != nil {
 		resultChan <- StreamEvent{Type: EventError, Model: model, Err: err}
 		return
+	}
+}
+
+func QueryAll(models []string, prompt string) ([]ModelResult, error) {
+	results := make([]ModelResult, len(models))
+	var wg sync.WaitGroup
+
+	for i, model := range models {
+		wg.Add(1)
+		go func(idx int, m string) {
+			defer wg.Done()
+			result := QuerySync(m, prompt)
+			results[idx] = result
+		}(i, model)
+	}
+
+	wg.Wait()
+	return results, nil
+}
+
+func QuerySync(model, prompt string) ModelResult {
+	reqBody, err := json.Marshal(GenerateRequest{
+		Model:  model,
+		Prompt: prompt,
+		Stream: false,
+	})
+	if err != nil {
+		return ModelResult{Model: model, Error: err}
+	}
+
+	resp, err := http.Post(
+		"http://localhost:11434/api/generate",
+		"application/json",
+		bytes.NewBuffer(reqBody),
+	)
+	if err != nil {
+		return ModelResult{Model: model, Error: err}
+	}
+	defer resp.Body.Close()
+
+	var result GenerateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ModelResult{Model: model, Error: err}
+	}
+
+	return ModelResult{
+		Model:              model,
+		Response:           result.Response,
+		PromptEvalCount:    result.PromptEvalCount,
+		PromptEvalDuration: time.Duration(result.PromptEvalDuration),
+		EvalCount:          result.EvalCount,
+		EvalDuration:       time.Duration(result.EvalDuration),
+		LoadDuration:       time.Duration(result.LoadDuration),
+		TotalTime:          time.Duration(result.TotalDuration),
 	}
 }

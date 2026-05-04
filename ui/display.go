@@ -40,7 +40,7 @@ func RenderStream(streamChan <-chan ollama.StreamEvent, models []string) {
 
 	var mu sync.Mutex
 	doneCount := 0
-	
+
 	// Initial print
 	mu.Lock()
 	for _, m := range models {
@@ -88,14 +88,14 @@ func RenderStream(streamChan <-chan ollama.StreamEvent, models []string) {
 				mu.Lock()
 				// 1. Move up by the lines we PREVIOUSLY printed
 				moveUp(currentTotalLines)
-				
+
 				// 2. Redraw all boxes
 				newTotalLines := 0
 				for _, m := range models {
 					printBox(states[m])
 					newTotalLines += countBoxLines(states[m])
 				}
-				
+
 				// 3. Update the line count for next moveUp
 				currentTotalLines = newTotalLines
 				updatesNeeded = false
@@ -119,19 +119,19 @@ finalRedraw:
 func countBoxLines(s *modelResult) int {
 	width := 70
 	fixedOverhead := 7
-	
+
 	content := strings.TrimSpace(s.response.String())
 	if content == "" {
 		content = "Thinking..."
 	}
-	
+
 	var contentLines []string
 	if s.err != nil {
 		contentLines = wrapText(fmt.Sprintf("Error: %s", s.err), width-4)
 	} else {
 		contentLines = wrapText(content, width-4)
 	}
-	
+
 	return fixedOverhead + len(contentLines)
 }
 
@@ -162,21 +162,21 @@ func printBox(s *modelResult) {
 
 	titleText := fmt.Sprintf(" %s %s", Info.Sprint("●"), Bold.Sprint(s.model))
 	plainTitle := fmt.Sprintf(" ● %s", s.model)
-	
+
 	paddingCount := width - len(plainTitle) - len(plainStatus) - 2
 	if paddingCount < 1 {
 		paddingCount = 1
 	}
 
 	fmt.Print("\033[K")
-	fmt.Printf("%s%s%s%s%s\n", 
-		Dim.Sprint("│"), 
-		titleText, 
-		strings.Repeat(" ", paddingCount), 
-		status, 
+	fmt.Printf("%s%s%s%s%s\n",
+		Dim.Sprint("│"),
+		titleText,
+		strings.Repeat(" ", paddingCount),
+		status,
 		Dim.Sprint(" │"),
 	)
-	
+
 	// 3: Separator 1
 	fmt.Print("\033[K")
 	fmt.Printf("%s\n", Dim.Sprint("├"+line+"┤"))
@@ -192,7 +192,7 @@ func printBox(s *modelResult) {
 		}
 		contentLines = wrapText(content, width-4)
 	}
-	
+
 	for _, l := range contentLines {
 		fmt.Print("\033[K")
 		fmt.Printf("%s  %-66s  %s\n", Dim.Sprint("│"), l, Dim.Sprint("│"))
@@ -205,25 +205,32 @@ func printBox(s *modelResult) {
 	// 6: Stats Section
 	fmt.Print("\033[K")
 	if s.totalTime > 0 {
-		statsLine := fmt.Sprintf(" %s%s %s%s",
+		statsLine := fmt.Sprintf(" %s%d %s%d %s%s %s%s %s%s",
+			Label.Sprint("IN:"), s.promptEvalCount,
+			Label.Sprint("OUT:"), s.evalCount,
 			Label.Sprint("TTFT:"), Metric.Sprint(s.promptEvalDuration.Round(time.Millisecond)),
+			Label.Sprint("LOAD:"), Metric.Sprint(s.loadDuration.Round(time.Millisecond)),
 			Label.Sprint("TOTAL:"), Metric.Sprint(s.totalTime.Round(time.Millisecond)),
 		)
-		plainStats := fmt.Sprintf(" TTFT:%s TOTAL:%s",
+		plainStats := fmt.Sprintf(" IN:%d OUT:%d TTFT:%s LOAD:%s TOTAL:%s",
+			s.promptEvalCount, s.evalCount,
 			s.promptEvalDuration.Round(time.Millisecond),
+			s.loadDuration.Round(time.Millisecond),
 			s.totalTime.Round(time.Millisecond),
 		)
 		statsPadding := width - len(plainStats) - 1
-		if statsPadding < 0 { statsPadding = 0 }
+		if statsPadding < 0 {
+			statsPadding = 0
+		}
 		fmt.Printf("%s%s%s%s\n", Dim.Sprint("│"), statsLine, strings.Repeat(" ", statsPadding), Dim.Sprint("│"))
 	} else {
-		fmt.Printf("%s %-68s %s\n", Dim.Sprint("│"), Info.Sprint(" Thinking..."), Dim.Sprint("│"))
+		fmt.Printf("%s %-68s %s\n", Dim.Sprint("│"), Info.Sprint(" Streaming response..."), Dim.Sprint("│"))
 	}
 
 	// 7: Bottom border
 	fmt.Print("\033[K")
 	fmt.Printf("%s\n", Dim.Sprint("╰"+line+"╯"))
-	
+
 	// 8: Trailing spacer newline
 	fmt.Print("\033[K")
 	fmt.Println()
@@ -232,7 +239,11 @@ func printBox(s *modelResult) {
 func PrintResult(r ollama.ModelResult) {
 	s := &modelResult{
 		model:              r.Model,
-		promptEvalDuration: r.TTFT,
+		promptEvalCount:    r.PromptEvalCount,
+		promptEvalDuration: r.PromptEvalDuration,
+		evalCount:          r.EvalCount,
+		evalDuration:       r.EvalDuration,
+		loadDuration:       r.LoadDuration,
 		totalTime:          r.TotalTime,
 		err:                r.Error,
 	}

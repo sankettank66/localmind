@@ -121,7 +121,13 @@ func Execute() error {
 
 		ui.RenderStream(streamChan, models)
 	} else {
-		// Non-streaming fallback for now
+		results, err := ollama.QueryAll(models, *promptFlag)
+		if err != nil {
+			return err
+		}
+		for _, r := range results {
+			ui.PrintResult(r)
+		}
 	}
 
 	return nil
