@@ -10,11 +10,65 @@ import (
 	"github.com/sankettank66/localmind/ui"
 )
 
+func printUsage() {
+	// ui.PrintHeader()
+	fmt.Println("\nAvailable flags:")
+	flag.VisitAll(func(f *flag.Flag) {
+		fmt.Printf("  -%s \t %s (default: %v)\n", f.Name, f.Usage, f.DefValue)
+	})
+	fmt.Println()
+}
+
+func ensureOllama() error {
+	ui.ShowLoading("Checking Ollama installation...")
+	if !ollama.IsOllamaInstalled() {
+		ui.UpdateLoading(false, "Ollama is not installed. Please install it from ollama.com")
+		return fmt.Errorf("ollama not found")
+	}
+	ui.UpdateLoading(true, "Ollama is installed")
+
+	ui.ShowLoading("Checking if Ollama is running...")
+	if !ollama.IsOllamaRunning() {
+		ui.UpdateLoading(false, "Ollama is not running. Starting it now...")
+
+		ui.ShowLoading("Starting Ollama service...")
+		err := ollama.StartOllama()
+		if err != nil {
+			ui.UpdateLoading(false, "Failed to start Ollama")
+			return err
+		}
+
+		if !ollama.WaitForOllama() {
+			ui.UpdateLoading(false, "Ollama service timed out")
+			return fmt.Errorf("ollama timeout")
+		}
+		ui.UpdateLoading(true, "Ollama service started")
+	} else {
+		ui.UpdateLoading(true, "Ollama service is active")
+	}
+	return nil
+}
+
 func Execute() error {
 	modelsFlag := flag.String("models", "", "Comma-separated list of models (e.g. llama3,mistral)")
 	promptFlag := flag.String("prompt", "", "Prompt to send to all models")
 	listFlag := flag.Bool("list", false, "List all available Ollama models")
+	streamFlag := flag.Bool("stream", true, "Enable streaming responses")
 	flag.Parse()
+
+	// Show header on every start
+	ui.PrintHeader()
+
+	// Show available flags when no arguments provided
+	if len(flag.Args()) > 0 || (flag.NFlag() == 0 && !*listFlag) {
+		printUsage()
+		return nil
+	}
+
+	// Ensure Ollama is ready before doing anything else
+	if err := ensureOllama(); err != nil {
+		return err
+	}
 
 	// List models
 	if *listFlag {
@@ -42,29 +96,38 @@ func Execute() error {
 		models[i] = strings.TrimSpace(models[i])
 	}
 
-	ui.PrintHeader(*promptFlag, models)
+	// Print summary of what we're about to do
+	fmt.Println()
+	ui.Bold.Printf("  📝 Prompt  : %s\n", *promptFlag)
+	ui.Bold.Printf("  🤖 Models  : %s\n", strings.Join(models, ", "))
+	fmt.Println()
 
-	// Run all models in parallel
-	resultChan := make(chan ollama.ModelResult, len(models))
-	var wg sync.WaitGroup
+	if *streamFlag {
+		streamChan := make(chan ollama.StreamEvent, 100)
+		var wg sync.WaitGroup
 
-	for _, model := range models {
-		wg.Add(1)
-		go func(m string) {
-			defer wg.Done()
-			ollama.Query(m, *promptFlag, resultChan)
-		}(model)
-	}
+		for _, model := range models {
+			wg.Add(1)
+			go func(m string) {
+				defer wg.Done()
+				ollama.Query(m, *promptFlag, streamChan)
+			}(model)
+		}
 
-	// Close channel when all done
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
+		go func() {
+			wg.Wait()
+			close(streamChan)
+		}()
 
-	// Print results as they come in
-	for result := range resultChan {
-		ui.PrintResult(result)
+		ui.RenderStream(streamChan, models)
+	} else {
+		results, err := ollama.QueryAll(models, *promptFlag)
+		if err != nil {
+			return err
+		}
+		for _, r := range results {
+			ui.PrintResult(r)
+		}
 	}
 
 	return nil
