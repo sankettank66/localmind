@@ -10,6 +10,8 @@ import (
 	"github.com/sankettank66/localmind/ui"
 )
 
+const Version = "v1.1.0"
+
 func printUsage() {
 	// ui.PrintHeader()
 	fmt.Println("\nAvailable flags:")
@@ -54,7 +56,14 @@ func Execute() error {
 	promptFlag := flag.String("prompt", "", "Prompt to send to all models")
 	listFlag := flag.Bool("list", false, "List all available Ollama models")
 	streamFlag := flag.Bool("stream", true, "Enable streaming responses")
+	versionFlag := flag.Bool("version", false, "Show the application version")
 	flag.Parse()
+
+	// Show version and exit
+	if *versionFlag {
+		fmt.Printf("LocalMind %s\n", Version)
+		return nil
+	}
 
 	// Show header on every start
 	ui.PrintHeader()
