@@ -53,6 +53,7 @@ func Execute() error {
 	modelsFlag := flag.String("models", "", "Comma-separated list of models (e.g. llama3,mistral)")
 	promptFlag := flag.String("prompt", "", "Prompt to send to all models")
 	listFlag := flag.Bool("list", false, "List all available Ollama models")
+	streamFlag := flag.Bool("stream", true, "Enable streaming responses")
 	flag.Parse()
 
 	// Show header on every start
@@ -101,27 +102,26 @@ func Execute() error {
 	ui.Bold.Printf("  🤖 Models  : %s\n", strings.Join(models, ", "))
 	fmt.Println()
 
-	// Run all models in parallel
-	resultChan := make(chan ollama.ModelResult, len(models))
-	var wg sync.WaitGroup
+	if *streamFlag {
+		streamChan := make(chan ollama.StreamEvent, 100)
+		var wg sync.WaitGroup
 
-	for _, model := range models {
-		wg.Add(1)
-		go func(m string) {
-			defer wg.Done()
-			ollama.Query(m, *promptFlag, resultChan)
-		}(model)
-	}
+		for _, model := range models {
+			wg.Add(1)
+			go func(m string) {
+				defer wg.Done()
+				ollama.Query(m, *promptFlag, streamChan)
+			}(model)
+		}
 
-	// Close channel when all done
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
+		go func() {
+			wg.Wait()
+			close(streamChan)
+		}()
 
-	// Print results as they come in
-	for result := range resultChan {
-		ui.PrintResult(result)
+		ui.RenderStream(streamChan, models)
+	} else {
+		// Non-streaming fallback for now
 	}
 
 	return nil

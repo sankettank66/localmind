@@ -1,10 +1,10 @@
 package ollama
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os/exec"
 	"time"
@@ -17,7 +17,17 @@ type GenerateRequest struct {
 }
 
 type GenerateResponse struct {
-	Response string `json:"response"`
+	Model              string `json:"model"`
+	CreatedAt          string `json:"created_at"`
+	Response           string `json:"response"`
+	Done               bool   `json:"done"`
+	DoneReason         string `json:"done_reason"`
+	TotalDuration      int64  `json:"total_duration"`
+	LoadDuration       int64  `json:"load_duration"`
+	PromptEvalCount    int    `json:"prompt_eval_count"`
+	PromptEvalDuration int64  `json:"prompt_eval_duration"`
+	EvalCount          int    `json:"eval_count"`
+	EvalDuration       int64  `json:"eval_duration"`
 }
 
 type ModelResult struct {
@@ -26,6 +36,27 @@ type ModelResult struct {
 	TTFT      time.Duration // time to first token
 	TotalTime time.Duration
 	Error     error
+}
+
+type StreamEventType int
+
+const (
+	EventToken StreamEventType = iota
+	EventDone
+	EventError
+)
+
+type StreamEvent struct {
+	Type               StreamEventType
+	Model              string
+	Token              string
+	PromptEvalCount    int
+	PromptEvalDuration time.Duration
+	EvalCount          int
+	EvalDuration       time.Duration
+	LoadDuration       time.Duration
+	TotalTime          time.Duration
+	Err                error
 }
 
 func IsOllamaInstalled() bool {
@@ -89,14 +120,16 @@ func ListModels() ([]string, error) {
 	return names, nil
 }
 
-func Query(model, prompt string, resultChan chan<- ModelResult) {
-	start := time.Now()
-
-	reqBody, _ := json.Marshal(GenerateRequest{
+func Query(model, prompt string, resultChan chan<- StreamEvent) {
+	reqBody, err := json.Marshal(GenerateRequest{
 		Model:  model,
 		Prompt: prompt,
-		Stream: false,
+		Stream: true,
 	})
+	if err != nil {
+		resultChan <- StreamEvent{Type: EventError, Model: model, Err: err}
+		return
+	}
 
 	resp, err := http.Post(
 		"http://localhost:11434/api/generate",
@@ -104,29 +137,49 @@ func Query(model, prompt string, resultChan chan<- ModelResult) {
 		bytes.NewBuffer(reqBody),
 	)
 	if err != nil {
-		resultChan <- ModelResult{Model: model, Error: err}
+		resultChan <- StreamEvent{Type: EventError, Model: model, Err: err}
 		return
 	}
 	defer resp.Body.Close()
 
-	ttft := time.Since(start)
+	ttftSet := false
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var chunk GenerateResponse
+		if err := json.Unmarshal(line, &chunk); err != nil {
+			continue
+		}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		resultChan <- ModelResult{Model: model, Error: err}
-		return
+		if chunk.Done {
+			resultChan <- StreamEvent{
+				Type:               EventDone,
+				Model:              model,
+				PromptEvalCount:    chunk.PromptEvalCount,
+				PromptEvalDuration: time.Duration(chunk.PromptEvalDuration),
+				EvalCount:          chunk.EvalCount,
+				EvalDuration:       time.Duration(chunk.EvalDuration),
+				LoadDuration:       time.Duration(chunk.LoadDuration),
+				TotalTime:          time.Duration(chunk.TotalDuration),
+			}
+			return
+		}
+
+		if chunk.Response == "" {
+			continue
+		}
+
+		if !ttftSet {
+			ttftSet = true
+		}
+		resultChan <- StreamEvent{Type: EventToken, Model: model, Token: chunk.Response}
 	}
 
-	var genResp GenerateResponse
-	if err := json.Unmarshal(body, &genResp); err != nil {
-		resultChan <- ModelResult{Model: model, Error: err}
+	if err := scanner.Err(); err != nil {
+		resultChan <- StreamEvent{Type: EventError, Model: model, Err: err}
 		return
-	}
-
-	resultChan <- ModelResult{
-		Model:     model,
-		Response:  genResp.Response,
-		TTFT:      ttft,
-		TotalTime: time.Since(start),
 	}
 }

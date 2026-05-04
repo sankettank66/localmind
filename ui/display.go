@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -28,6 +29,91 @@ type modelResult struct {
 	totalTime          time.Duration
 	response           strings.Builder
 	err                error
+}
+
+func RenderStream(streamChan <-chan ollama.StreamEvent, models []string) {
+	numModels := len(models)
+	states := make(map[string]*modelResult)
+	for _, m := range models {
+		states[m] = &modelResult{model: m}
+	}
+
+	var mu sync.Mutex
+	doneCount := 0
+	
+	// Initial print
+	mu.Lock()
+	for _, m := range models {
+		printBox(states[m])
+	}
+	mu.Unlock()
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	updatesNeeded := false
+	currentTotalLines := 0
+	for _, m := range models {
+		currentTotalLines += countBoxLines(states[m])
+	}
+
+	for {
+		select {
+		case event, ok := <-streamChan:
+			if !ok {
+				goto finalRedraw
+			}
+			mu.Lock()
+			s := states[event.Model]
+			switch event.Type {
+			case ollama.EventToken:
+				s.response.WriteString(event.Token)
+			case ollama.EventDone:
+				s.promptEvalCount = event.PromptEvalCount
+				s.promptEvalDuration = event.PromptEvalDuration
+				s.evalCount = event.EvalCount
+				s.evalDuration = event.EvalDuration
+				s.loadDuration = event.LoadDuration
+				s.totalTime = event.TotalTime
+				doneCount++
+			case ollama.EventError:
+				s.err = event.Err
+				doneCount++
+			}
+			updatesNeeded = true
+			mu.Unlock()
+
+		case <-ticker.C:
+			if updatesNeeded {
+				mu.Lock()
+				// 1. Move up by the lines we PREVIOUSLY printed
+				moveUp(currentTotalLines)
+				
+				// 2. Redraw all boxes
+				newTotalLines := 0
+				for _, m := range models {
+					printBox(states[m])
+					newTotalLines += countBoxLines(states[m])
+				}
+				
+				// 3. Update the line count for next moveUp
+				currentTotalLines = newTotalLines
+				updatesNeeded = false
+				mu.Unlock()
+			}
+			if doneCount == numModels {
+				goto finalRedraw
+			}
+		}
+	}
+
+finalRedraw:
+	mu.Lock()
+	moveUp(currentTotalLines)
+	for _, m := range models {
+		printBox(states[m])
+	}
+	mu.Unlock()
 }
 
 func countBoxLines(s *modelResult) int {
