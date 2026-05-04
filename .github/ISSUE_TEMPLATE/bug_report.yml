@@ -1,0 +1,46 @@
+name: Bug report
+description: Create a report to help us improve
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us, what did you expect to happen?
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How to reproduce it?
+      description: Provide a minimal, reproducible example if possible.
+      placeholder: |
+        1. Run `localmind ...`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: LocalMind Version
+      description: Run `localmind -version` (if available) or provide commit hash.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Environment Context
+      description: |
+        - OS: [e.g. Windows 11, macOS Sonoma]
+        - Go Version: [e.g. 1.25.0]
+        - Ollama Version: [e.g. 0.1.32]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: Paste any relevant logs or drag-and-drop screenshots here.
