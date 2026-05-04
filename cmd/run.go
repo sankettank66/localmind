@@ -10,11 +10,46 @@ import (
 	"github.com/sankettank66/localmind/ui"
 )
 
+func ensureOllama() error {
+	ui.ShowLoading("Checking Ollama installation...")
+	if !ollama.IsOllamaInstalled() {
+		ui.UpdateLoading(false, "Ollama is not installed. Please install it from ollama.com")
+		return fmt.Errorf("ollama not found")
+	}
+	ui.UpdateLoading(true, "Ollama is installed")
+
+	ui.ShowLoading("Checking if Ollama is running...")
+	if !ollama.IsOllamaRunning() {
+		ui.UpdateLoading(false, "Ollama is not running. Starting it now...")
+
+		ui.ShowLoading("Starting Ollama service...")
+		err := ollama.StartOllama()
+		if err != nil {
+			ui.UpdateLoading(false, "Failed to start Ollama")
+			return err
+		}
+
+		if !ollama.WaitForOllama() {
+			ui.UpdateLoading(false, "Ollama service timed out")
+			return fmt.Errorf("ollama timeout")
+		}
+		ui.UpdateLoading(true, "Ollama service started")
+	} else {
+		ui.UpdateLoading(true, "Ollama service is active")
+	}
+	return nil
+}
+
 func Execute() error {
 	modelsFlag := flag.String("models", "", "Comma-separated list of models (e.g. llama3,mistral)")
 	promptFlag := flag.String("prompt", "", "Prompt to send to all models")
 	listFlag := flag.Bool("list", false, "List all available Ollama models")
 	flag.Parse()
+
+	// Ensure Ollama is ready before doing anything else
+	if err := ensureOllama(); err != nil {
+		return err
+	}
 
 	// List models
 	if *listFlag {

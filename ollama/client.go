@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"time"
 )
 
@@ -25,6 +26,43 @@ type ModelResult struct {
 	TTFT      time.Duration // time to first token
 	TotalTime time.Duration
 	Error     error
+}
+
+func IsOllamaInstalled() bool {
+	_, err := exec.LookPath("ollama")
+	return err == nil
+}
+
+func StartOllama() error {
+	cmd := exec.Command("ollama", "serve")
+
+	// Detach from current process
+	err := cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("✅ Ollama started in background")
+	return nil
+}
+
+func WaitForOllama() bool {
+	for i := 0; i < 5; i++ {
+		if IsOllamaRunning() {
+			return true
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return false
+}
+
+func IsOllamaRunning() bool {
+	resp, err := http.Get("http://localhost:11434/api/tags")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func ListModels() ([]string, error) {

@@ -13,7 +13,21 @@ var (
 	success  = color.New(color.FgGreen, color.Bold)
 	metric   = color.New(color.FgYellow)
 	errColor = color.New(color.FgRed)
+	Info     = color.New(color.FgBlue)
 )
+
+func ShowLoading(message string) {
+	fmt.Printf("  %s %-30s", Info.Sprint("⌛"), message)
+}
+
+func UpdateLoading(success bool, message string) {
+	fmt.Print("\r")
+	if success {
+		fmt.Printf("  %s %-30s\n", color.GreenString("✅"), message)
+	} else {
+		fmt.Printf("  %s %-30s\n", color.RedString("❌"), message)
+	}
+}
 
 func PrintResult(r ollama.ModelResult) {
 	fmt.Println(strings.Repeat("─", 60))
