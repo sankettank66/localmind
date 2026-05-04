@@ -10,6 +10,15 @@ import (
 	"github.com/sankettank66/localmind/ui"
 )
 
+func printUsage() {
+	// ui.PrintHeader()
+	fmt.Println("\nAvailable flags:")
+	flag.VisitAll(func(f *flag.Flag) {
+		fmt.Printf("  -%s \t %s (default: %v)\n", f.Name, f.Usage, f.DefValue)
+	})
+	fmt.Println()
+}
+
 func ensureOllama() error {
 	ui.ShowLoading("Checking Ollama installation...")
 	if !ollama.IsOllamaInstalled() {
@@ -46,6 +55,15 @@ func Execute() error {
 	listFlag := flag.Bool("list", false, "List all available Ollama models")
 	flag.Parse()
 
+	// Show header on every start
+	ui.PrintHeader()
+
+	// Show available flags when no arguments provided
+	if len(flag.Args()) > 0 || (flag.NFlag() == 0 && !*listFlag) {
+		printUsage()
+		return nil
+	}
+
 	// Ensure Ollama is ready before doing anything else
 	if err := ensureOllama(); err != nil {
 		return err
@@ -77,7 +95,11 @@ func Execute() error {
 		models[i] = strings.TrimSpace(models[i])
 	}
 
-	ui.PrintHeader(*promptFlag, models)
+	// Print summary of what we're about to do
+	fmt.Println()
+	ui.Bold.Printf("  📝 Prompt  : %s\n", *promptFlag)
+	ui.Bold.Printf("  🤖 Models  : %s\n", strings.Join(models, ", "))
+	fmt.Println()
 
 	// Run all models in parallel
 	resultChan := make(chan ollama.ModelResult, len(models))
